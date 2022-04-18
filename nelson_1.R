@@ -6,185 +6,17 @@
 ###############################################################################
 rm(list = ls())
 
-# dependencies
-library(data.table)
-
-# simulate pseudo population
-## meta
-# seed = 123
-# set.seed(seed)
-
-## parameters
-# feat_n = 2
-# #feat_strength
-# feat_dist = 'uniform'
-# #balance
-# population_size = 1e6
-
-### Define base variables
-create_features = function(feat_n, population_size){
-  feature_list = list()
-  
-  for(i in 1:feat_n){
-    var_sim = rnorm(population_size)
-    feature_list[[i]] = var_sim
-  }
-
-  return(feature_list)
-  
-}
-
-# returned_feature_list = create_features(feat_n)
-
-### Define beta coefficients
-create_betas = function(feat_n
-                        , feat_dist # uniform, normal
-                        , mu
-                        , sigma
-                        , feat_strengt_unit #logodds, perc_change
-                        , multiplicator = 10
-                        ){
-
-  beta_list = list()
-  
-  if(feat_dist == 'uniform'){
-    if(feat_strengt_unit == 'logodds'){
-      
-    } else if(feat_strengt_unit == 'percentage'){
-      
-      
-    }
-    
-  } else if(feat_dist == 'normal'){
-    
-    if(feat_strengt_unit == 'logodds'){
-      
-    } else if(feat_strengt_unit == 'percentage'){
-      
-      
-    }
-    
-  }
-  
-  coef_distr = runif((feat_n*multiplicator), -5, 5)
-  
-  sampled_betas = sample(x = coef_distr
-                         , size = feat_n
-                         , replace = F)
-  
-  for(i in 1:feat_n){
-    beta_list[[i]] = sampled_betas[i]
-  }
-  
-  return(beta_list)
-
-}
-
-# returned_beta_list = create_betas(feat_n)
-
-### Fix balance
-
-### Build base model
-simulate_pseudo_population = function(betas_list = returned_beta_list
-                                      , features_list = returned_feature_list
-                                      , intercept = 0
-                                      #, seed = seed
-                                      , pop_size = population_size
-                                       ){
-  
-  feature_matrix = matrix(data = unlist(features_list)
-                          , nrow = length(features_list[[1]])
-                          , byrow = F)
-  
-  beta_matrix = matrix(data = unlist(betas_list)
-                       , nrow = length(unlist(betas_list))
-                       , ncol = 1)
-  
-  model_matrix = feature_matrix %*% beta_matrix
-
-  z = intercept + model_matrix
-  
-  pr = 1/(1+exp(-z))
-  
-  #set.seed(seed*5)
-  y = rbinom(n = pop_size
-             , size = 1
-             , prob = pr)
-  
-  df_outcome = as.data.frame(y)
-  df_features = as.data.frame(feature_matrix)
-  
-  base_dt = setDT(cbind(df_outcome, df_features))
-  
-  feature_name_vec = paste0('var_', 1:length(betas_list))
-  
-  names(base_dt) = c('y', feature_name_vec)
- 
-  return(base_dt)   
-}
-
-# pseudo_population = simulate_pseudo_population()
+source('/Users/bennettkleinberg/GitHub/nelson_sample/nelson_utils.R')
 
 
-# WRAPPER
-
-make_pseudo_population = function(feat_n
-                                  , feat_dist = 'uniform'
-                                  , population_size
-                                  , seed = 123
-                                  ){
-  
-  set.seed(seed)
-  
-  returned_feature_list = create_features(feat_n, population_size)
-  returned_beta_list = create_betas(feat_n)
-  pseudo_population = simulate_pseudo_population(returned_beta_list
-                                                 , returned_feature_list
-                                                 , intercept = 0
-                                                 , pop_size = population_size
-                                                 )
-  
-  return(pseudo_population)
-  
-  #add slots with info from betas
-  
-}
-
-p1 = make_pseudo_population(feat_n = 4
-                            , population_size = 1e6)
-
-#### check 
-population = p1
-nelson_check = function(population){
-  
-  data = population
-  test_glm = (glm( y~.
-               , data = data
-               , family="binomial"))
-  
-  bal_class_1 = unname(prop.table(table(glm1$data$y))[1])
-  bal_class_2 = unname(prop.table(table(glm1$data$y))[2])
-  
-  
-}
-
-glm1 = (glm( y~.
-             , data = p1
-             , family="binomial"))
-
-summary(glm1)
-returned_beta_list
 
 #TODO:
-# feature strength via log-odds reversion
-
-# 
-# change_to_logodds(0)
-
-# feature strength prior information
+# feature strength via log-odds reversion DONE
+# feature strength prior information DONE
 # print output statement
 # evaluate simulation-to-empirical match DONE
 # add slots to class with meta var
+# add weight to small values in sampling (lognormal?)
 
 ###############################################################################
 ###############################################################################
@@ -194,11 +26,129 @@ returned_beta_list
 
 
 # ML model 1
-run_ml_model_1 = function(n, metric){
+require(caret)
+
+run_ml_model_gen = function(population
+                          , n
+                          , model = 'rf'
+                          , train_prop = 0.80
+                          , cv_folds = 5
+                          , cv_reps = 5
+                          , seed){
+  
+  seed = 12
+  set.seed(seed)
+  data_ml = sample_from_population(population = population
+                                   , n = n
+                                   , seed = (seed*42))
+  
+  data_ml$y = as.factor(make.names(data_ml$y))
+  data_ml = as.data.frame(data_ml)
+  
+  train_idx = createDataPartition(y = data_ml$y
+                                  , p = train_prop
+                                  , list = FALSE)
+  
+  train_data = data_ml[train_idx, ]
+  test_data = data_ml[-train_idx,]
+  
+  train_ctrl = trainControl(method="repeatedcv"
+                            , number = cv_folds
+                            , repeats = cv_reps
+                            , selectionFunction = "oneSE"
+                            , classProbs = T
+                            , summaryFunction = twoClassSummary
+                            , savePredictions = F)
+  
+  train_model = train(y ~ .
+                      , data = train_data
+                      , method = model
+                      , trControl = train_ctrl
+                      #, preProcess = c('nzv')
+  )
+  
+  pred = predict(train_model, test_data[, -c(1)])
+  probs = predict(train_model, test_data[, -c(1)], type='prob')[,1]
+  
+  confusion_matrix = confusionMatrix(pred, test_data$y)
+  
+  return(confusion_matrix)
   
 }
 
-# 
+
+
+
+run_ml_model_1 = function(population
+                          , n
+                          , train_prop = 0.80
+                          , cv_folds = 5
+                          , cv_reps = 5
+                          , seed){
+
+  seed = 12
+  set.seed(seed)
+  data_ml = sample_from_population(population = population
+                                   , n = n
+                                   , seed = (seed*42))
+  
+  data_ml$y = as.factor(make.names(data_ml$y))
+  data_ml = as.data.frame(data_ml)
+  
+  train_idx = createDataPartition(y = data_ml$y
+                                    , p = train_prop
+                                    , list = FALSE)
+  
+  train_data = data_ml[train_idx, ]
+  test_data = data_ml[-train_idx,]
+  
+  train_ctrl = trainControl(method="repeatedcv"
+                          , number = cv_folds
+                          , repeats = cv_reps
+                          , selectionFunction = "oneSE"
+                          , classProbs = T
+                          , summaryFunction = twoClassSummary
+                          , savePredictions = F)
+  
+  train_model = train(y ~ .
+                      , data = train_data
+                      , method = "rf"
+                      , trControl = train_ctrl
+                      #, preProcess = c('nzv')
+                      )
+  
+  pred = predict(train_model, test_data[, -c(1)])
+  probs = predict(train_model, test_data[, -c(1)], type='prob')[,1]
+  
+  confusion_matrix = confusionMatrix(pred, test_data$y)
+  
+  return(confusion_matrix)
+  
+}
+
+cmat_1 = run_ml_model_1(population = p1
+                        , n = 800
+                        , train_prop = 0.8
+                        , cv_folds = 4
+                        , cv_reps = 2
+                        , seed = 3)
+
+# retrieve values from confusion-matrix
+get_metric_from_confmat = function(cmat
+                                   , metric = 'acc'){
+  
+  if(metric == 'acc'){
+    m_out = cmat$overall[1]
+  } else if(metric){
+    #...
+  }
+  
+  return(unname(m_out))
+  
+}
+
+get_metric_from_confmat(cmat_1)
+
 
 
 # Sample from pseudo population, run ML model
