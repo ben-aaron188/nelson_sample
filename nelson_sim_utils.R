@@ -1,13 +1,13 @@
 ###############################################################################
 ###############################################################################
 ### NELSON sample size estimator for supervised machine learning problems
-### nelson_utils.R
+### Helper functions for population simulation
+### nelson_sim_utils.R
 ###
 ###############################################################################
 
 # dependencies
 library(data.table)
-library(caret)
 
 # Define base variables
 create_features = function(feat_n, population_size){
@@ -217,17 +217,3 @@ nelson_check = function(population){
 
 ##USECASE
 # nelson_check(p1)
-
-# Sample from population
-sample_from_population = function(population
-                                  , n
-                                  , seed){
-  
-  set.seed(seed)
-  pop_sample_idx = sample(1:nrow(population), n, replace = F)
-  pop_sample = population[pop_sample_idx, ]
-  return(pop_sample)
-  
-}
-
-##USECASE sample_from_population(p1, 10, 12)
