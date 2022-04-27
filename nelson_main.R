@@ -19,7 +19,8 @@ nelson = function(feat_n
                   , model
                   , ci_level
                   , steps
-                  , stability
+                  , stability_corridor
+                  , lambda
                   , metric
                   , iter_max
                   , min = 0.01

@@ -18,18 +18,19 @@ source('/Users/bennettkleinberg/GitHub/nelson_sample/nelson_learning_utils.R')
 # evaluate simulation-to-empirical match DONE
 # add slots to class with meta var
 # add weight to small values in sampling (lognormal?)
+# role of intercept
 
 ###############################################################################
 ###############################################################################
 ###############################################################################
 
 
-p1 = make_pseudo_population(feat_n = 2
-                            , population_size = 1e4
+p1 = make_pseudo_population(feat_n = 50
+                            , population_size = 1e5
                             , feat_dist = 'uniform'
                             , feat_strength_unit = 'prop'
                             , min = 0.01
-                            , max = 0.60
+                            , max = 0.30
                             , seed = 123)
 
 
@@ -41,7 +42,6 @@ run_ml_model_gen = function(population
                           , cv_reps = 5
                           , seed){
   
-  #seed = 12
   set.seed(seed)
   if(n == 'baseline'){
     data_ml = sample_from_population(population = population
@@ -89,53 +89,116 @@ run_ml_model_gen = function(population
   
 }
 
+nlsn_flow_fwd = function(population = p1
+                         , train_prop = 0.8
+                         , cv_folds = 4
+                         , cv_reps = 1
+                         , seed = 32
+                         , iter_max = 10
+                         , n_min = 20
+                         , n_max = 120
+                         , n_steps = 20
+                         ){
 
-
-cmat_1 = run_ml_model_gen(population = p1
-                        , n = 'baseline'
-                        , train_prop = 0.8
-                        , cv_folds = 4
-                        , cv_reps = 2
-                        , seed = 3)
-get_metric_from_confmat(cmat_1)
-
-iter_max = 10
-empty_list_meta = list()
-steps = seq(50, 1000, 50)
-for (i in 1:length(steps)){
+  cmat_baseline = run_ml_model_gen(population = population
+                            , n = 'baseline'
+                            , train_prop = train_prop
+                            , cv_folds = cv_folds
+                            , cv_reps = cv_reps
+                            , seed = seed)
   
-  print(i)
+  baseline_metric = get_metric_from_confmat(cmat_baseline)
   
-  empty_list_cmats = list()
-  for(j in 1:iter_max){
-    print(j)
+  
+  list_meta = list()
+  base_seed = 58239*seed
+  
+  steps = seq(n_min, n_max, n_steps)
+  
+  for (i in 1:length(steps)){
     
-    temp_cmat = run_ml_model_gen(population = p1
-                                 , n = steps[i]
-                                 , train_prop = 0.8
-                                 , cv_folds = 4
-                                 , cv_reps = 2
-                                 , seed = sample(1:1e6, 1))
+    print(i)
     
-    metric = get_metric_from_confmat(temp_cmat)
-    df_ = data.frame(metric = metric
-                     , n = steps[i]
-                     , iter = j)
+    cmat_list = list()
+    for(j in 1:iter_max){
+      print(j)
+      
+      new_seed = base_seed+steps[i]+j
+      
+      print(new_seed)
+      
+      temp_cmat = run_ml_model_gen(population = population
+                                   , n = steps[i]
+                                   , train_prop = train_prop
+                                   , cv_folds = cv_folds
+                                   , cv_reps = cv_reps
+                                   , seed = new_seed)
+      
+      metric = get_metric_from_confmat(temp_cmat)
+      
+      df_ = data.frame(metric = metric
+                       , n = steps[i]
+                       , iter = j)
+      
+      cmat_list[[j]] = df_
+    }
     
-    empty_list_cmats[[j]] = df_
+    list_to_df = rbindlist(cmat_list)
+    list_meta[[i]] = list_to_df
+    
   }
   
-  list_to_df = rbindlist(empty_list_cmats)
-  empty_list_meta[[i]] = list_to_df
+  results_dt = rbindlist(list_meta)
+  results_dt[, metric_delta := (baseline_metric - metric)]
   
-    
+  return(results_dt)
 }
 
-results_dt = rbindlist(empty_list_meta)
-results_dt[, metric_delta := (0.8865 - metric)]
-results_mean = results_dt[, mean(metric_delta), n]
+
+
+nlsn_analyse = function(nlsn_results_obj
+                        , CI_level = 0.99){
+  
+  nlsn_aggr = nlsn_results_obj[, .('M' = mean(metric_delta), 'SD' = sd(metric_delta), 'iter' = .N), n]
+  nlsn_aggr[, SE := SD/sqrt(iter)]
+  crit_z = qnorm((1-CI_level),lower.tail=FALSE)
+  nlsn_aggr[, CI_lo := M-crit_z*SE]
+  nlsn_aggr[, CI_hi := M+crit_z*SE]
+  
+  return(nlsn_aggr)
+  
+}
+
+
+nlsn_results = nlsn_flow_fwd(n_min = 50, n_max = 1000, n_steps = 50, iter_max = 20)
+nlsn_results_2 = nlsn_analyse(nlsn_results
+                              , CI_level = 0.90)
+
+stability_corridor = 0.05
+plot(M ~ n
+     , data = nlsn_results_2
+     , col=4
+     , ylim=c(-0.5, 0.5)
+     , ylab='Metric delta'
+     , xlab='Sample size'
+     , main=""
+     , pch=19
+     , cex=0.8
+     , xaxt='n'
+     , yaxt='n'
+     , panel.first = grid())
+lines(CI_lo ~ n, data = nlsn_results_2, col='red')
+lines(CI_hi ~ n, data = nlsn_results_2, col='red')
+axis(1, at = format(round(seq(0, 1000, 50), 2), nsmall=2), las=1)
+axis(2, at = format(round(seq(-0.5, 0.5, .1), 2), nsmall=2), las=1)
+abline(h=stability_corridor, col='black', lty=2)
+abline(h=-stability_corridor, col='black', lty=2)
 
 plot(V1 ~ n, data = results_mean)
+
+
+
+
 
 # META FUNCTION
 ## params

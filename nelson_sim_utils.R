@@ -32,6 +32,7 @@ change_to_logodds = function(change){
 }
 
 
+
 # Define beta coefficients for simulated pop
 create_betas = function(feat_n
                         , feat_dist # uniform, normal
@@ -41,7 +42,8 @@ create_betas = function(feat_n
                         , max
                         , feat_strengt_unit #logodds, prop
                         , multiplicator = 10
-){
+                        ){
+  
   
   beta_list = list()
   
